@@ -1,0 +1,9 @@
+[submodule "starbot-xmpp"]
+	path = starbot-xmpp
+	url = git@github.com:simulacre/starbot-xmpp.git
+[submodule "starbot-irc"]
+	path = starbot-irc
+	url = git@github.com:simulacre/starbot-irc.git
+[submodule "starbot-skype"]
+	path = starbot-skype
+	url = git@github.com:simulacre/starbot-skype.git
