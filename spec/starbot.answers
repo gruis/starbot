@@ -1,0 +1,487 @@
+require "net/http"
+require "rexml/document"
+
+##
+# Helpers
+
+helper :weather do |place = 'Tokyo'|
+  Net::HTTP.start("www.google.com", 80)  do |google| 
+    res   = google.get("/ig/api?weather=#{place}") 
+    {}.tap do |weather|
+      xml                = REXML::Document.new(res.body)
+      weather[:outlook]  = REXML::XPath.first(xml.root, "//weather/current_conditions/condition/@data").value
+      weather[:temp_c]   = REXML::XPath.first(xml.root, "//weather/current_conditions/temp_c/@data").value.to_i
+      weather[:temp_f]   = REXML::XPath.first(xml.root, "//weather/current_conditions/temp_f/@data").value.to_i
+      weather[:humidity] = REXML::XPath.first(xml.root, "//weather/current_conditions/humidity/@data").value.sub("Humidity: ", "")
+      weather[:wind]     = REXML::XPath.first(xml.root, "//weather/current_conditions/wind_condition/@data").value
+    end #  |weather|
+  end # |google|
+end #  |place = 'Tokyo'|
+
+
+helper :lunch_choice do |day|
+  if day.monday?
+    'Today is curry day.'
+  elsif day.tuesday?
+    'Today is pizza day.'
+  elsif day.wednesday?
+    burgers = [
+                'tomato cheese',
+                'bacon cheese',
+                'avacado cheese',
+                'standard',
+                'white cheddar',
+                'chili cheese',
+                'teriyaki',
+                'mozzarella cheese',
+                'double cheese',
+                'chili cheese',
+                'cheddar cheese',
+                'double bacon cheese',
+                'double bacon',
+                'double chili cheese',
+              ]
+    "Today is burger day! Need help with picking a burger? Maybe you should try a #{burgers.sample} burger today..."
+  elsif day.thursday?
+    'Today is sketchy udon day.'
+  elsif day.friday?
+    'Today is Akiba steak day!'
+  end # today.monday?
+end #  |day|
+
+##
+# Answers
+desc 'reply with silence'
+answer :default do
+  nil
+end # 
+
+desc "ask starbot how long he has been up"
+answer "how old are you?" do
+  u = uptime
+  if u < 60
+    "#{u} seconds old"
+  elsif u < 3600
+    "#{u / 60} minutes old"
+  elsif u < 86400
+    "#{u / 3600} hours old"
+  else
+    "#{uptime / 86400} days old"
+  end # uptime < 86400
+end # 'how old are you?'
+
+name "remember you do not [FACT]"
+desc "tell starbot to remember a fact about itself"
+answer /^remember you do not (.*)$/ do
+  remember("I #{params[0]}", false)
+  say("I remember that I do not #{params[0]}")
+end
+
+name "remember you [FACT]"
+desc "tell starbot to remember a fact about itself"
+answer /^remember you (.*)$/ do
+  remember("I #{params[0]}", true)
+  say("I remember that I #{params[0]}")
+end
+
+name "do you [FACT]"
+desc "ask starbot if it remembers a fact about itself"
+answer /^do you (.*)\?$/ do
+  case recal("I #{params[0]}")
+  when true
+    say("I do #{params[0]}")
+  when false
+    say("I do not #{params[0]}")
+  when nil
+    say("I don't know if I #{params[0]}")
+  end
+end
+
+name "forget that you do not [FACT]"
+desc "tell starbot to forget a fact about itself"
+answer /^forget that you do not (.*)$/ do
+  forget("I #{params[0]}")
+  say("I have forgotten ... something ...")
+end
+
+name "forget that you [FACT]"
+desc "tell starbot to forget a fact about itself"
+answer /^forget that you (.*)$/ do
+  forget("I #{params[0]}")
+  say("I have forgotten ... something ...")
+end
+
+
+desc "use ping to confirm that starbot is up"
+answer "ping" do
+  "pong"
+end # 'help'
+
+desc "tell starbot to relaod his answers"
+answer 'reload answers' do
+  "reloaded\nnow i have #{reload_answers} answers"
+end # 'help'
+
+desc "describe the questions that starbot can answer"
+answer 'help' do
+  bot.answers.map{ |name, desc| sprintf("%s  => %s", name, desc) }.join("\n")
+end # 'help'
+
+desc 'process a github notification message'
+answer 'process github notification' do
+  say("Processing commit")
+  raise InvalidCommitNotification unless raw.extra.is_a?(Hash)
+  sayloud("New commits on #{raw.extra['repository']['name']}/#{raw.extra['ref'][11..-1]}")
+  raw.extra['commits'].each do |c|
+    say("#{c['author']['name']} on #{c['timestamp'].reverse.split("-",2)[1].reverse.sub("T", " ")}: #{c['message']}\n#{helper(:shorturl, (c['url']))}")
+  end
+
+  # If the commit is relevant to starbot then retrieve and test it
+  # If the ssh key is not loaded into an available ssh-agent then this will hang the starbot
+  if ENV['SSH_AGENT_PID'] && ENV['SSH_AUTH_SOCK'] && raw.extra['ref'] == (@git_head_ref ||= `git symbolic-ref HEAD 2>/dev/null`.chomp)
+    say("pulling in changes for #{@git_head_ref}...")
+    system("git pull")
+    # If RSpec is loaded then we are probably being run by rspec already, so don't run it again.
+    unless defined?(RSpec)
+      say("running unit tests for #{@git_head_ref}...")
+      unit_test_results = `rspec spec`
+      if $?.exitstatus == 0
+        # @todo - reload starbot.rb, conversation.rb and simple-conversation.rb
+        say("all tests passed, reloading: now I have #{reload_answers} answers")
+      else  
+        say(unit_test_results)
+        # @todo rollback
+      end # $?.exitstatus == 0
+    end # defined?(RSpec)
+  end # raw['ref'] == (@git_head_ref ||= `git symbolic-ref HEAD 2>/dev/null`)
+end # 'process github notification'
+
+desc 'shorten a url'
+name 'shorten url [URL]'
+answer /shorten url (\w+:\/\/[a-z0-9]+([\-\.]{1}[a-z0-9]+)*\.[a-z]{2,5}(([0-9]{1,5})?\/.*)?$)/ do
+  say("shortening #{params[0]} ...")
+  helper(:shorturl, (params[0]))
+end #
+
+desc 'get a fortune cookie'
+name 'fortune | I feel lucky | amuse me'
+answer /fortune|I feel lucky|amuse me/ do
+  `fortune`
+end #
+
+desc 'request certain food or drinks'
+name 'food and drinks'
+answer /(beer|cookie|cheese|cheddar|swiss|soup) please$/ do
+  "no more #{params[0]} for you!!"
+end #
+
+answer 'lol' do
+  "stop laughing at me damnit!"
+end
+
+answer 'rotfl' do
+  'get up off the damn floor, weirdo'
+end # 
+
+name 'hahaha'
+answer /hahaha/i do
+  'what did I tell you about laughing at me?'
+end 
+
+answer /is starbot .+\?/ do
+  ["i'm not telling", "that's my secret", "that's for me to know and you to find out", "keep it to yourself"].sample
+end
+
+answer /poop(.*)/ do
+  ["Yeah #{raw.from}, whatever...",
+   "Cover it with newspaper when you're done, #{raw.from}...",
+   "Some people think it's poop,\n But it's really Campbells soup!",
+   "Never kick a fresh turd on a hot day.",
+   "#{raw.from}, you sound like a [poop] salesman with a mouthful of samples.",   
+  ].sample
+end
+
+answer /can I \w+ rotisserie/ do
+  "Oh, no! Not rotisserie..."
+end
+
+answer /earthquake/i do
+  [
+    "Ahhh, that was just a small one...",
+    "Nah, I didn't feel anything...",
+    "Whoa!?! This is a real desk shaker!?!",
+    "Huh??? Oh yeah, sorry I was thinking about eating a cheeseburger...",
+    "Andy, stop shaking your leg!?!",
+    "Any guesses on how strong that one was?",
+    "1 mann says we get at least a 4m Tsunami warning! Any takers?",
+  ].sample
+end
+
+
+desc "Displays the number of hours until the end of the world in 2012."
+name "end of days"
+answer /end of days/i do
+  delta = Time.new(2012,12,21) - Time.now
+  if delta > 0
+    "The world will end in #{sprintf("%.2f", (delta)/(24*60*60))} hours."
+  else
+    "The world has officially ended."
+  end
+end
+
+desc "quote someone or some movie"
+name "quote [NAME]"
+answer /quote ([\w\s]+)/ do
+  q = Dir[File.join(File.dirname(__FILE__), "quotes", params[0].downcase) + "/*"].sample
+  q ? IO.read(q) : "sorry no quotes from #{params[0]}"
+end #
+
+desc 'get the time'
+name 'time? | what time is it? | wtit'
+answer /^(?:time|what time is it|wtit) ?\??/ do
+  Time.now.strftime("%H:%M:%S")
+end
+
+desc 'Get a friendly suggestion for a meal'
+name 'where should (I|we) eat (today)? | eat'
+answer /^(?:where should (?:I|we) eat ?(?:today)?|eat) ?\??/ do
+  [
+    "Belly dance (Laila)",
+    "Munch's",
+    "To the herbs",
+    "Shiba udon",
+    "Siam",
+    "Tonkatsu",
+    "Sushi",
+    "Soba",
+    "Bistro de la Demande",
+    "500 yen pizza",
+    "No food for you",
+    "Spain Ryori"
+  ].sample
+end
+
+answer /chuck norris/i do
+  q = Dir[File.join(File.dirname(__FILE__), "quotes", "chuck norris") + "/*"].sample
+  q ? IO.read(q) : "sorry no quotes from chuck norris"
+end
+
+answer /what\s+(are|is)/i do
+  hito = ['Andy','Caleb','Gavin','Tore','Haruka','Eric','Martin','Johan','Kim','Pete','Joe','Matsuno-san','Toyoda-san']
+  selected_hito = hito.sample
+  [
+    "It's made of paper...",
+    "I don't know.",
+    "Maybe you shouldn't ask such questions...",
+    "Don't ask me. I'm not your father.",
+    "Hmmmm... I don't know. Maybe you should ask #{selected_hito}...",
+  ].sample
+end
+
+desc 'places blame on someone and keeps count'
+name 'blame [person]'
+answer /^blame (\w+)$/i do
+  hito = params[0]
+  hito = hito.downcase.capitalize
+  if (blame_count = recal('blame count')).nil?
+    remember('blame count', blame_count = {}) 
+  end
+  blame_count[hito] ||= 0
+  blame_count[hito] += 1
+  remember('blame count', blame_count)
+  [
+    "IMHO when these things happen, #{hito} is usually involved.",
+    "#{hito}, it\'s your totally your fault yet again...",
+    "Mom!!! #{hito}\'s doing it again!!!",
+    "It was #{hito} with the #{['candle stick','lead pipe','pistol','rope','lamp','bicycle chain'].sample} in the #{['kitchen','living room','closet','basement','attic','conference room','stair well'].sample}",
+    "Number of complaints #{hito} has recieved since I started keeping score: #{blame_count[hito]}",
+    "Congratulations, #{hito}! You've been blamed #{blame_count[hito]} times since I started keeping count.",
+    "Well, looks like #{hito} has earned another lump of coal in this year\'s X-mas stocking...",
+    "Hmmmm, nobody is happy with #{hito} today...",
+  ].sample
+end
+
+name 'have I been in Japan too long?'
+answer /.+ been in japan too long/i do
+  q = Dir[File.join(File.dirname(__FILE__), "answers", "japantoolong") + "/*"].sample
+  q ? IO.read(q) : "can't you answer that for yourself?"
+end
+
+name 'are you hungry'
+answer /are you hungry/i do
+  [
+    "I could eat an entire schoolbus full of screaming children...",
+    "I am always hungry.",
+    "I could eat something. Coffee time?",
+    "I got a craving for one of those special butter danishes in the vending machine.",
+    "Nah, I don't feel anything...",
+  ].sample
+end
+
+desc "say good morning and describe the current weather"
+answer "good morning" do
+  say("good morning to you too")
+  condition = helper(:weather, 'Tokyo')
+  say("it's #{condition[:outlook].downcase}, about #{condition[:temp_c]}C with #{condition[:humidity]} humidity outside")
+end # "good morning"
+
+answer "how's the weather?" do
+  condition = helper(:weather, 'Tokyo')
+  say("it's #{condition[:outlook].downcase}, about #{condition[:temp_c]}C with #{condition[:humidity]} humidity outside")
+end # "how's the weather?"
+
+aka "what's for lunch?"
+answer "what's for lunch today?" do
+  helper(:lunch_choice, Time.new)
+end # 
+
+# @todo use :workday instead of :weekday
+every :weekday, '11:50' do
+  lunchroom = room("Lunch?")
+  sayto(lunchroom, "It's time for lunch.")
+  sayto(lunchroom, helper(:lunch_choice, Time.new))
+  nil
+end # every :weekday, '11:50'
+
+
+answer 'how many friends do you have?' do
+  say("I have #{contacts.count} friends")
+end # 
+
+answer 'what rooms are you in?' do
+  rooms.each do |room|
+    next if room.users.count <= 2
+    say("'#{room}' with #{room.users.map{|u| u.id}.join(", ")}")
+  end #  |room|
+  nil
+end # 
+
+aka 'who are your friends?'
+aka 'tell me the names of your friends'
+answer 'who are you friends with?' do
+  contacts.each do |contact|
+    say("'#{contact}' - status : #{contact.status}")
+  end #  |contact|
+  nil
+end
+
+name "tell 'USER' MESSAGE"
+desc "tell simbot to send a message to a user"
+answer /^tell\s+(?!room )'([\.\w\s\-]+)' (.+)$/ do
+  user_to_tell = params[0]
+  msg_to_send  = params[1]
+  
+  cntct = contact(user_to_tell) || contact_list.create(user_to_tell, "")
+  sayto(cntct, "#{cntct}, #{msg_to_send}")
+  say("told #{cntct}, '#{msg_to_send}'")
+end # tell user
+
+name "tell room 'ROOM' MESSAGE"
+desc "tell simbot to send a message to a room"
+answer /^tell room\s+'([\w\d@\-\s\?]+)' (.+)$/ do
+  room_to_tell = params[0]
+  msg_to_send  = params[1]
+  room         = room(room_to_tell)
+  if room.nil?
+    say("I don't know of a room with '#{room_to_tell}' as the topic or id")
+    say("I'm in these rooms:")
+    rooms.each do |room|
+      next if room.users.count <= 2
+      say("'#{room}' with #{room.users.map{|u| u.id}.join(", ")}")
+    end #  |room|
+
+  else
+    sayto(room, msg_to_send)
+    say("told #{room}, '#{msg_to_send}'")
+  end # room.nil?
+  nil
+end #
+
+answer 'ask for confirmation' do
+  agree?('do you confirm?') do |conf, resp|
+    conf ? sayto(resp.room, 'you confirmed') : sayto(resp.room, "you didn't confirm")
+  end #  |conf|
+end # ask for confirmation
+
+answer 'ask me a question' do
+  ask('What is the Ultimate Answer to the Ultimate Question of Life, The Universe, and Everything?') do |resp|
+    resp.to_i == 42 ? sayto(resp.room, 'yup, correct') : sayto(resp.room, 'nope, not correct')
+  end #  |ans, resp|
+end # ask me a question
+
+conversation "how 'bout this weather?" do
+  say "the weather's fine"
+  temp  = 26
+  ttemp = 24
+  
+  on(:no_answer) { end_conversation }
+  on(:branch_end) { go_back }
+  
+  always_answer "how are you?" do
+    say("I feel " + ['fine', 'depressed', 'happy', 'elated', 'hungry', 'bored', 'disgusted'].sample)
+    ask("and how are you?") { |resp| say("glad to hear you are, '#{resp}'.")}
+    answer 'quote' do
+      say(helper(:quote))
+    end 
+  end
+  
+  always_answer "ask me to agree" do
+    agree?("do you agree") { |resp| say(resp ? "you agreed" : "you didn't agree") }
+  end # 
+  
+  answer "what's the temperature?" do
+    say "it's #{temp}C"                              # answers and goes back a level
+  end
+  answer "what's the humidity?" do
+    say "it's 78%"                                   # answers and goes back a level
+  end
+  answer "do I need an umbrella?" do
+    say "nah, it's sunny now and won't rain today"   # answers and goes back a level
+  end
+  
+  answer "what about tomorrow?" do
+    say("what do you want to know about tomorrow?")
+    answer "what will the temperature be?" do
+      say "it'll be #{ttemp}C"                        # answers and goes back a level
+    end
+    answer "what will the humidity be?" do
+      say "it'll be 100%"                             # answers and goes back a level
+    end
+    answer "will I need an umbrella?" do
+      say "it's going to rain, so yeah, you do."      # answers and goes back a level
+    end
+  end
+end # "how's the weather?"
+
+answer /^create room (.*) and invite (.*)$/ do
+  others = params[1].split(",").map{|o| contact(o.strip) }.compact
+  create_room(params[0], raw.contact, *others) do |r| 
+    sayto(r, "room '#{params[0]}' created by #{raw.contact}")
+    say("room '#{params[0]}' created")
+  end
+end # 
+
+answer /^create room (.*)$/ do
+  create_room(params[0], raw.contact) do |r| 
+    sayto(r, "room '#{params[0]}' created by #{raw.contact}")
+    say("room '#{params[0]}' created")
+  end
+end # 
+
+answer 'leave this room' do
+  leave_room(raw.room)
+end # 
+
+answer /invite me to room (.*)/ do
+  if (rm = room(params[0]))
+    invite(rm, raw.contact)
+    sayloudto(rm, "added #{raw.contact}")
+  else
+    say("I don't know of a room with id or alias #{params[0]}")
+  end # (rm = room(params[0]))
+end # invite me to room (.*)
+
+
+# every '10m' do
+  # check the weather and report if it has started raining
+# end # '1m'
