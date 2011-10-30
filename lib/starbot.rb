@@ -370,17 +370,12 @@ class Starbot
   
   ##
   # Utility methods
-  
-  
+
+  # @deprecated Context used to be required to enuser that respones went to the sender by default.
+  # Now all necessary response information is encapsulated in a Conversation.
   def context
     return unless block_given?
-    # @todo Consider removing the lock it is probably not necessary now that
-    #       we are using Conversation objects.
-    @lock.synchronize do
-      myons = @ons.clone
-      yield self
-      @ons = myons
-    end
+    yield self
   end # context
   
   

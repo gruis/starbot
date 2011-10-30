@@ -13,36 +13,31 @@ describe "default room" do
     @starbot.log.level = Logger::ERROR
   end
   
-  specify 'the default room should stay the default room' do
-    callcount = {:other => 0, :default => 0 }
-    @starbot.answer('default room') do
-      callcount[:default] += 1
-      say("answer in default room") 
-    end
-    @starbot.answer('other room') do
-      callcount[:other] += 1
-      say("answer in other room") 
-    end
+  specify 'send responses to the right contact and room' do
+    @starbot.answer('default room') { say("answer in default room"); nil }
+    @starbot.answer('other room') { say("answer in other room"); nil }
     
-    defroom     = nil
-    othroom     = nil
+    responses   = {'roomA' => {:msg => nil, :cnt => 0}, 'roomB' => {:msg => nil, :cnt => 0}}
+    @starbot.on(:sayto) do |a,m| 
+      responses[a.to_s][:msg] = m
+      responses[a.to_s][:cnt] += 1
+    end
 
-    @starbot.on(:sayto) {|a,m| defroom = m }
+    msgA = ::Starbot::Msg.new('default room', @starbot.contact_list.create('userA', 'userA'), Time.new,
+                                              @starbot.room_list.create('roomA', 'roomA', 'userA', Time.new) )
+    msgB = ::Starbot::Msg.new('other room', @starbot.contact_list.create('userB', 'userB'), Time.new,
+                                            @starbot.room_list.create('roomB', 'roomB', 'userB', Time.new) )
 
-    @starbot.route('default room')
-    defroom.should == 'answer in default room'
+    @starbot.route(msgA.txt, msgA)
+    responses["roomA"][:msg].should == 'answer in default room'
 
-    @starbot.context do |ctx|
-      ctx.on(:sayto) {|a,m| othroom = m}
-      ctx.route('other room')
-    end #  |ctx|
-
-    @starbot.route('default room')
+    @starbot.route(msgA.txt, msgA)
+    @starbot.route(msgB.txt, msgB)
     
-    callcount[:default].should == 2
-    callcount[:other].should == 1
-    defroom.should == 'answer in default room'
-    othroom.should == 'answer in other room'
+    responses['roomA'][:cnt].should == 2
+    responses['roomB'][:cnt].should == 1
+    responses['roomA'][:msg].should == 'answer in default room'
+    responses['roomB'][:msg].should == 'answer in other room'
   end # the default room should stay the default room
   
   specify 'when a string is returned from a helper it should be said'
@@ -58,25 +53,20 @@ describe "default room" do
       say("thread 2")
     end
     
-    t1chan = nil
-    t2chan = nil
+    responses   = {}
+    @starbot.on(:sayto) { |a,m| responses[a.to_s] = m }
     
-    Thread.new do |t1|
-      @starbot.context do |ctx| 
-        ctx.on(:sayto) { |a,m| t1chan = m }
-        ctx.route('thread 1')
-      end
-    end #  |t1|
-    
-    @starbot.context do |ctx| 
-      ctx.on(:sayto) { |a,m| t2chan = m } 
-      ctx.route('thread 2')
-    end
+    msgA = ::Starbot::Msg.new('thread 1', @starbot.contact_list.create('userA', 'userA'), Time.new,
+                                              @starbot.room_list.create('roomA', 'roomA', 'userA', Time.new) )
+    msgB = ::Starbot::Msg.new('thread 2', @starbot.contact_list.create('userB', 'userB'), Time.new,
+                                            @starbot.room_list.create('roomB', 'roomB', 'userB', Time.new) )
+    Thread.new { |t1| @starbot.route(msgA) }
+    @starbot.route(msgB)
     
     sleep 0.5
     
-    t1chan.should == "thread 1"
-    t2chan.should == "thread 2"
+    responses['roomA'].should == 'thread 1'
+    responses['roomB'].should == 'thread 2'
   end # starbot's answers should be thread-safe
   
   specify 'reloading answers should not duplicate scheduled jobs' do
