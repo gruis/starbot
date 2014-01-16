@@ -31,7 +31,7 @@ class Starbot
     @callbacks       = {}
     self.answer(:default) { "I don't understand" }
     @latest_desc = nil
-    @scheduler   = Rufus::Scheduler.start_new(:thread_name => 'starbot scheduler', :frequency => 1.0)
+    @scheduler   = Rufus::Scheduler.new
     @lock        = Mutex.new
     @log         = Logger.new(STDERR)
   end # initialize(*rooms)

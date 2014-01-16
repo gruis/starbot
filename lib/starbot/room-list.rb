@@ -40,7 +40,7 @@ class Starbot
     # @param [String] qry
     # @return [Room, nil]
     def find(qry)
-      find_by_alias(qry) || find_by_id(qry)
+      find_by_alias(qry) || find_by_id(qry) || find_by_jid(qry)
     end # find(qry)
     
     # Find the a room by the given id
@@ -49,6 +49,13 @@ class Starbot
       return nil unless rooms.keys.include?(rid)
       rooms[rid]
     end # find_by_id(cid)
+
+    # Finds a XMPP room by JID (Jabber ID)
+    # @param [String] qry
+    # @return [Room, nil]
+    def find_by_jid(qry)
+      rooms.values.find {|r| r.id.is_a?(Jabber::JID) && qry.include?(r.id.node) }
+    end # find_by_jid(qry)
     
     # Find the first room that has the given alias
     # @param [String] alas
