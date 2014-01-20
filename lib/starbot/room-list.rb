@@ -40,7 +40,7 @@ class Starbot
     # @param [String] qry
     # @return [Room, nil]
     def find(qry)
-      find_by_alias(qry) || find_by_id(qry)
+      find_by_alias(qry) || find_by_id(qry) || find_by_jid(qry)
     end # find(qry)
     
     # Find the a room by the given id
