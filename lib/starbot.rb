@@ -336,7 +336,7 @@ class Starbot
   # @see https://github.com/jmettraux/rufus-scheduler
   # @return [Hash] job_id => job of at/in/every jobs
   def scheduled
-    @scheduler.all_jobs
+    @scheduler.every_jobs
   end # scheduled
   
   # Specify a block to call on a specific event
